@@ -111,7 +111,9 @@ Health check: `GET /api/v1/health/`.
   query narrows candidates before local projection and optimization.
 
 The free openrouteservice Standard plan currently requires an API key and applies
-usage quotas. Provider URLs, timeouts, and cache TTLs are configurable in `.env`.
+usage quotas. Routing uses `api.heigit.org`, while the hosted Pelias geocoder remains
+at `api.openrouteservice.org`. Both URLs, timeouts, and cache TTLs are configurable
+in `.env`.
 The public OSRM demo was not used because it has no uptime guarantee and is not
 intended as a production backend.
 

@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 from django.test import override_settings
@@ -34,6 +36,7 @@ def test_route_response_is_cached_after_one_provider_call():
 
     assert first == second
     assert len(requests) == 1
+    assert json.loads(requests[0].content)["radiuses"] == [2000, 2000]
     assert ProviderCache.objects.filter(kind=ProviderCache.Kind.ROUTE).count() == 1
 
 
@@ -59,6 +62,8 @@ def test_address_geocode_is_cached_and_restricted_to_us():
 
     assert first == second == (35.4676, -97.5164)
     assert len(requests) == 1
+    assert requests[0].url.host == "api.openrouteservice.org"
+    assert requests[0].url.path == "/geocode/search"
 
 
 def test_coordinates_outside_us_are_rejected():

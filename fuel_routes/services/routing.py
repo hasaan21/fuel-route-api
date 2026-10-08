@@ -32,6 +32,7 @@ class RoutingService:
     def __init__(self, client: httpx.Client | None = None) -> None:
         self.client = client or httpx.Client(timeout=settings.ROUTING_TIMEOUT_SECONDS)
         self.base_url = settings.OPENROUTESERVICE_BASE_URL.rstrip("/")
+        self.geocode_url = settings.OPENROUTESERVICE_GEOCODE_URL
         self.api_key = settings.OPENROUTESERVICE_API_KEY
 
     def resolve_location(self, location: dict[str, Any]) -> tuple[float, float]:
@@ -56,7 +57,7 @@ class RoutingService:
 
         response = self._request(
             "GET",
-            f"{self.base_url}/geocode/search",
+            self.geocode_url,
             params={"text": location["address"], "boundary.country": "US", "size": 1},
         )
         features = response.json().get("features", [])
@@ -104,7 +105,12 @@ class RoutingService:
         response = self._request(
             "POST",
             f"{self.base_url}/openrouteservice/v2/directions/driving-car/geojson",
-            json={"coordinates": coordinates, "instructions": False, "elevation": False},
+            json={
+                "coordinates": coordinates,
+                "radiuses": [settings.ROUTING_SNAP_RADIUS_METERS] * len(coordinates),
+                "instructions": False,
+                "elevation": False,
+            },
         )
         payload = response.json()
         if not payload.get("features"):
