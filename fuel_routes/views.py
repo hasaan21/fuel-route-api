@@ -37,20 +37,6 @@ class OptimizeRouteView(APIView):
                 "finish": {"latitude": finish[0], "longitude": finish[1]},
                 "route": route["features"][0],
                 **plan,
-                "assumptions": {
-                    "maximum_range_miles": 500,
-                    "fuel_efficiency_mpg": 10,
-                    "tank_capacity_gallons": 50,
-                    "starting_fuel_gallons": data["starting_fuel_gallons"],
-                    "origin_fill": (
-                        "When starting fuel cannot reach a station, the cheapest station within "
-                        "the configured origin area is treated as the initial fill."
-                    ),
-                },
-                "attribution": {
-                    "routing": "openrouteservice by HeiGIT; map data © OpenStreetMap contributors",
-                    "fuel_prices": "Provided OPIS truck-stop assessment dataset",
-                },
             },
             status=status.HTTP_200_OK,
         )

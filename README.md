@@ -86,7 +86,7 @@ The response contains:
 - `fuel_stops` and `fuel_stops_geojson`: stop details and map-ready points
 - gallons, unit price, and subtotal for each fill
 - `total_gallons_purchased` and `total_fuel_cost`
-- route distance, duration, assumptions, and required attribution
+- route distance and duration
 
 Errors use a stable envelope:
 
@@ -133,6 +133,13 @@ so a trip completed entirely on starting fuel has zero new fuel spend.
 
 City-centroid fallback coordinates are intentionally marked in each stop's
 `geocode_quality`; they are less precise than Census address matches.
+
+## Attribution
+
+Route data is provided by openrouteservice by HeiGIT using map data
+© OpenStreetMap contributors. Fuel prices come from the provided OPIS truck-stop
+assessment dataset. Any UI displaying these results must preserve the required
+openrouteservice and OpenStreetMap attribution.
 
 ## Quality checks
 

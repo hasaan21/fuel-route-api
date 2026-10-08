@@ -56,7 +56,8 @@ def test_optimize_route_returns_geojson_and_totals(resolve, route, optimize):
     assert body["route"]["geometry"]["type"] == "LineString"
     assert body["fuel_stops_geojson"]["type"] == "FeatureCollection"
     assert body["total_fuel_cost"] == 30.0
-    assert "openrouteservice" in body["attribution"]["routing"]
+    assert "assumptions" not in body
+    assert "attribution" not in body
     optimize.assert_called_once_with(ROUTE, 5.0)
 
 
