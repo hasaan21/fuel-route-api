@@ -101,6 +101,15 @@ Errors use a stable envelope:
 
 Health check: `GET /api/v1/health/`.
 
+## OpenAPI documentation
+
+- Swagger UI: <http://127.0.0.1:8000/api/docs/>
+- ReDoc: <http://127.0.0.1:8000/api/redoc/>
+- OpenAPI schema: <http://127.0.0.1:8000/api/schema/>
+
+The schema documents request validation, successful responses, structured errors,
+and includes a runnable example for the route optimization endpoint.
+
 ## Routing calls and performance
 
 - Coordinates: one external directions call.

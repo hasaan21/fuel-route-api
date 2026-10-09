@@ -34,6 +34,17 @@ def test_health_endpoint():
     assert response.json() == {"status": "ok"}
 
 
+def test_openapi_schema_and_interactive_docs_are_available():
+    client = APIClient()
+
+    schema = client.get("/api/schema/", HTTP_ACCEPT="application/json")
+
+    assert schema.status_code == 200
+    assert "/api/v1/routes/optimize/" in schema.json()["paths"]
+    assert client.get("/api/docs/").status_code == 200
+    assert client.get("/api/redoc/").status_code == 200
+
+
 @patch("fuel_routes.views.optimize_fuel_plan", return_value=PLAN)
 @patch("fuel_routes.views.RoutingService.route", return_value=ROUTE)
 @patch(
