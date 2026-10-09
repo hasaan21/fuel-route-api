@@ -129,13 +129,15 @@ intended as a production backend.
 ## Optimization behavior
 
 The optimizer projects stations into a local equidistant coordinate system, filters
-out stations over the configured detour limit, and moves forward through reachable
-stations. At each fill it buys only enough to reach the first cheaper station within
-range; if none exists, it fills the tank and chooses the cheapest reachable station.
-Detour mileage consumes fuel.
+out stations over the configured detour limit, and builds a forward graph of every
+station reachable within one tank. A label search keeps non-dominated combinations
+of fuel carried and money spent, allowing it to skip stations whose discounts do not
+justify their detours. Fuel purchases follow the optimal fill-or-buy-enough property,
+and the globally cheapest feasible label is returned. Detour mileage consumes fuel.
 
 `starting_fuel_gallons` defaults to zero. When that amount cannot reach a station,
-the cheapest station in the configured origin area is treated as the initial fill.
+a station in the configured origin area is treated as the initial fill and all such
+starts are compared by total trip cost.
 If no station path can bridge the route in 500-mile segments, the API returns a 422
 instead of inventing a stop. Existing starting fuel is treated as already paid for,
 so a trip completed entirely on starting fuel has zero new fuel spend.

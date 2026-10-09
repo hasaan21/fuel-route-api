@@ -27,6 +27,20 @@ class Candidate:
         return self.station.retail_price
 
 
+@dataclass(frozen=True)
+class Purchase:
+    candidate: Candidate
+    gallons: float
+    fuel_on_arrival: float
+
+
+@dataclass(frozen=True)
+class Label:
+    fuel_gallons: float
+    cost: Decimal
+    purchases: tuple[Purchase, ...]
+
+
 def optimize_fuel_plan(
     route_geojson: dict[str, Any],
     starting_fuel_gallons: float,
@@ -40,18 +54,17 @@ def optimize_fuel_plan(
     max_range = settings.FUEL_MAX_RANGE_MILES
     mpg = settings.FUEL_EFFICIENCY_MPG
     tank_capacity = settings.FUEL_TANK_CAPACITY_GALLONS
-    current_fuel = starting_fuel_gallons
 
-    if route_miles <= current_fuel * mpg:
+    if route_miles <= starting_fuel_gallons * mpg:
         return _result(
             route_miles,
             duration_seconds,
             candidates,
             [],
-            current_fuel - route_miles / mpg,
+            starting_fuel_gallons - route_miles / mpg,
         )
 
-    initial_range = current_fuel * mpg
+    initial_range = starting_fuel_gallons * mpg
     initial = [
         candidate
         for candidate in candidates
@@ -71,62 +84,155 @@ def optimize_fuel_plan(
             "No fuel station is available near the origin or within the starting fuel range."
         )
 
-    first = min(initial, key=lambda item: (item.price, -item.marker_miles))
     if origin_fill:
-        current = replace(first, marker_miles=0.0, actual_marker_miles=first.marker_miles)
-        current_fuel = 0.0
+        initial_nodes = [
+            replace(candidate, marker_miles=0.0, actual_marker_miles=candidate.marker_miles)
+            for candidate in initial
+        ]
+        initial_ids = {candidate.station.pk for candidate in initial_nodes}
+        nodes = initial_nodes + [
+            candidate for candidate in candidates if candidate.station.pk not in initial_ids
+        ]
     else:
-        distance_to_first = first.marker_miles + first.detour_miles
-        current_fuel -= distance_to_first / mpg
-        current = first
+        nodes = list(candidates)
+
+    nodes.sort(key=lambda item: item.marker_miles)
+    labels: list[list[Label]] = [[] for _ in nodes]
+    initial_ids = {candidate.station.pk for candidate in initial}
+    for index, candidate in enumerate(nodes):
+        if candidate.station.pk not in initial_ids:
+            continue
+        if origin_fill:
+            fuel_on_arrival = 0.0
+        else:
+            distance_to_station = candidate.marker_miles + candidate.detour_miles
+            fuel_on_arrival = starting_fuel_gallons - distance_to_station / mpg
+        _add_label(
+            labels[index],
+            Label(
+                fuel_gallons=max(0.0, fuel_on_arrival),
+                cost=Decimal("0"),
+                purchases=(),
+            ),
+        )
+
+    best_destination: Label | None = None
+    for index, current in enumerate(nodes):
+        for label in tuple(labels[index]):
+            destination_distance = current.detour_miles + route_miles - current.marker_miles
+            if destination_distance <= max_range:
+                destination_label = _travel_to_destination(
+                    current,
+                    label,
+                    destination_distance / mpg,
+                )
+                if best_destination is None or destination_label.cost < best_destination.cost:
+                    best_destination = destination_label
+
+            for next_index in range(index + 1, len(nodes)):
+                following = nodes[next_index]
+                if following.marker_miles <= current.marker_miles + 0.1:
+                    continue
+                travel_gallons = _distance_between(current, following) / mpg
+                if travel_gallons > tank_capacity + 1e-9:
+                    if following.marker_miles - current.marker_miles > max_range:
+                        break
+                    continue
+                next_label = _travel_to_station(
+                    current,
+                    following,
+                    label,
+                    travel_gallons,
+                    tank_capacity,
+                )
+                _add_label(labels[next_index], next_label)
+
+    if best_destination is None:
+        raise InfeasibleFuelPlanError(
+            "The route contains a station gap greater than the vehicle's 500-mile range."
+        )
 
     stops: list[dict[str, Any]] = []
-    visited: set[int] = set()
+    for purchase in best_destination.purchases:
+        _record_purchase(
+            stops,
+            purchase.candidate,
+            purchase.gallons,
+            purchase.fuel_on_arrival,
+        )
+    return _result(
+        route_miles,
+        duration_seconds,
+        candidates,
+        stops,
+        best_destination.fuel_gallons,
+    )
 
-    while True:
-        if current.station.pk in visited:
-            raise InfeasibleFuelPlanError("A feasible, forward-only fuel plan could not be found.")
-        visited.add(current.station.pk)
 
-        destination_distance = current.detour_miles + route_miles - current.marker_miles
-        if destination_distance <= max_range:
-            required = destination_distance / mpg
-            purchased = max(0.0, required - current_fuel)
-            _record_purchase(stops, current, purchased, current_fuel)
-            current_fuel = current_fuel + purchased - required
-            break
+def _travel_to_station(
+    current: Candidate,
+    following: Candidate,
+    label: Label,
+    travel_gallons: float,
+    tank_capacity: float,
+) -> Label:
+    if following.price < current.price:
+        departure_fuel = max(label.fuel_gallons, travel_gallons)
+    else:
+        departure_fuel = tank_capacity
+    return _travel(current, label, departure_fuel, travel_gallons)
 
-        reachable = [
-            candidate
-            for candidate in candidates
-            if candidate.marker_miles > current.marker_miles + 0.1
-            and _distance_between(current, candidate) <= max_range
-            and candidate.station.pk not in visited
-        ]
-        if not reachable:
-            raise InfeasibleFuelPlanError(
-                "The route contains a station gap greater than the vehicle's 500-mile range."
-            )
 
-        reachable.sort(key=lambda item: item.marker_miles)
-        cheaper = [candidate for candidate in reachable if candidate.price < current.price]
-        if cheaper:
-            next_stop = cheaper[0]
-            target_fuel = _distance_between(current, next_stop) / mpg
-        else:
-            next_stop = min(reachable, key=lambda item: (item.price, -item.marker_miles))
-            target_fuel = tank_capacity
+def _travel_to_destination(
+    current: Candidate,
+    label: Label,
+    travel_gallons: float,
+) -> Label:
+    departure_fuel = max(label.fuel_gallons, travel_gallons)
+    return _travel(current, label, departure_fuel, travel_gallons)
 
-        purchased = max(0.0, target_fuel - current_fuel)
-        _record_purchase(stops, current, purchased, current_fuel)
-        current_fuel += purchased
-        travel_gallons = _distance_between(current, next_stop) / mpg
-        if travel_gallons > current_fuel + 1e-6:
-            raise InfeasibleFuelPlanError("The calculated fuel plan exceeds tank capacity.")
-        current_fuel -= travel_gallons
-        current = next_stop
 
-    return _result(route_miles, duration_seconds, candidates, stops, current_fuel)
+def _travel(
+    current: Candidate,
+    label: Label,
+    departure_fuel: float,
+    travel_gallons: float,
+) -> Label:
+    purchased = max(0.0, departure_fuel - label.fuel_gallons)
+    purchases = label.purchases
+    cost = label.cost
+    if purchased > 0.0001:
+        purchases += (
+            Purchase(
+                candidate=current,
+                gallons=purchased,
+                fuel_on_arrival=label.fuel_gallons,
+            ),
+        )
+        cost += Decimal(str(purchased)) * current.price
+    return Label(
+        fuel_gallons=max(0.0, departure_fuel - travel_gallons),
+        cost=cost,
+        purchases=purchases,
+    )
+
+
+def _add_label(bucket: list[Label], candidate: Label) -> None:
+    for existing in bucket:
+        if (
+            existing.cost <= candidate.cost
+            and existing.fuel_gallons >= candidate.fuel_gallons - 1e-9
+        ):
+            return
+    bucket[:] = [
+        existing
+        for existing in bucket
+        if not (
+            candidate.cost <= existing.cost
+            and candidate.fuel_gallons >= existing.fuel_gallons - 1e-9
+        )
+    ]
+    bucket.append(candidate)
 
 
 def _nearby_stations(coordinates: list[list[float]], route_miles: float) -> list[Candidate]:
